@@ -2,7 +2,7 @@
 
 # CDP-train
 
-### AP-aligned training and evaluation utilities for Ultralytics YOLO research workflows.
+### COCO-driven peak checkpoint selection for fairer Ultralytics YOLO research comparisons.
 
 <p>
   <a href="https://github.com/Sihang-Geng/CDP-train/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
@@ -13,9 +13,9 @@
 </p>
 
 <p>
-  <b>AP-aligned model selection</b> |
-  <b>training-time COCO evaluation</b> |
-  <b>custom COCO annotation support</b> |
+  <b>COCO-driven peak checkpoint selection</b> |
+  <b>fair model comparison</b> |
+  <b>AP-aligned training evaluation</b> |
   <b>paper-style visualization scripts</b>
 </p>
 
@@ -26,20 +26,26 @@
 
 ## Motivation
 
-In object detection research, final results are commonly reported with COCO-style AP metrics, especially `AP@[.50:.95]` / `mAP50-95`. This creates a practical gap during experimentation: the checkpoint selected during training should ideally be selected by the same metric family that will be reported in the paper.
+In object detection research, model comparison is often performed after training all models for a fixed number of epochs and then running an evaluation API on the final checkpoint. This protocol is simple, but it can be unfair when different models converge at different speeds.
 
-The original Ultralytics training workflow is strong and convenient, but in custom research settings the training-time fitness signal may not be fully aligned with the final COCO AP evaluation protocol. This repository addresses that gap by adding an AP-aligned training/evaluation path on top of Ultralytics YOLO.
+An early-converging model may reach its best performance before the final epoch and then begin to overfit. If only the last checkpoint is evaluated, its reported AP may be lower than its actual peak capability. A slower-converging model may show a different behavior under the same fixed-length setting. As a result, comparing only the final checkpoint can mix model quality with convergence timing, which weakens the fairness of ablation studies and cross-model comparisons.
 
-In short, `CDP-train` is designed to answer a very specific research-engineering question:
+This issue is especially important in papers that report COCO-style AP metrics, such as `AP@[.50:.95]` / `mAP50-95`. If the paper reports COCO AP, then checkpoint selection during training should also be aligned with COCO AP rather than relying only on a fixed final epoch.
 
-> If the paper reports COCO AP, can the training process select `best.pt` using COCO AP as well?
+`CDP-train` is designed for this research setting. It modifies the Ultralytics training process so that COCO evaluation can be run periodically during training, and the checkpoint with the best COCO score is retained. In this way, each model is compared closer to its own peak performance, making the comparison less sensitive to convergence speed and late-stage overfitting.
 
-This repository opens the non-core training, evaluation, and visualization support code from an ongoing manuscript. The full research method is not released here because the paper has not been formally accepted yet.
+In short, `CDP-train` focuses on the following question:
+
+> If different models converge at different times, can we compare them by their best COCO AP during training rather than only by the final fixed-epoch checkpoint?
+
+This repository opens the non-core training, evaluation, and visualization support code from an ongoing manuscript. The full research method and complete framework diagram are not released here because the paper has not been formally accepted yet. After acceptance, the core framework figure and additional method details will be supplemented.
 
 ## What This Repository Solves
 
-| Research workflow problem | What this repository provides |
+| Research workflow problem | What CDP-train provides |
 | --- | --- |
+| Fixed-epoch evaluation can favor or penalize models depending on convergence speed. | Keeps the checkpoint with the best COCO score observed during training. |
+| Early-converging models may overfit before the final epoch. | Periodically evaluates COCO AP and preserves the peak checkpoint. |
 | Final papers report COCO AP, but training may select checkpoints with a different fitness signal. | Uses COCO `mAP50-95(B)` as the training fitness for `best.pt`. |
 | Running full COCO API every epoch is expensive. | Adds scheduled evaluation with `coco_eval_interval` and `coco_start_epoch`. |
 | Custom COCO-format datasets often do not follow official COCO folder naming. | Searches multiple common annotation JSON locations. |
@@ -65,24 +71,24 @@ This is a partial research-code release. The goal is to make the training and ev
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| AP-aligned checkpoint selection | Released | Uses COCO `mAP50-95(B)` as training fitness. |
+| COCO-driven peak checkpoint selection | Released | Keeps the best COCO checkpoint observed during training. |
 | Training-time COCO API evaluation | Released | Runs `pycocotools.COCOeval` during selected validation epochs. |
 | Custom COCO annotation lookup | Released | Supports multiple common JSON layouts. |
 | Annotation-based image ID mapping | Released | Aligns prediction `image_id` with ground-truth COCO JSON. |
 | Visualization and plotting scripts | Released | Includes qualitative and paper-style figure utilities. |
-| Complete unpublished method | Not released | Reserved until the manuscript is formally accepted. |
+| Complete unpublished method and framework diagram | Not released | Reserved until the manuscript is formally accepted. |
 
 ## Main Features
 
-### 1. AP-aligned `best.pt` selection
+### 1. COCO-driven peak checkpoint selection
 
-The central modification is to make checkpoint selection follow COCO `mAP50-95(B)`. When COCO evaluation is executed successfully, the validator writes `metrics/mAP50-95(B)` back into the training stats and uses it as `fitness`.
+The central modification is to make checkpoint saving follow the best COCO score observed during training. When COCO evaluation is executed successfully, the validator writes `metrics/mAP50-95(B)` back into the training stats and uses it as `fitness`.
 
-This makes model selection closer to the metric used in paper reporting.
+Instead of comparing models only at a fixed final training length, this allows each model to be evaluated near its own best validation point. This is useful for ablation studies because convergence speed, overfitting timing, and late-stage instability can otherwise distort the comparison.
 
 ### 2. Scheduled COCO evaluation during training
 
-Full COCO evaluation requires prediction collection, JSON export, annotation loading, and COCOeval accumulation. To keep training efficient, the repository adds scheduling controls:
+Full COCO evaluation requires prediction collection, JSON export, annotation loading, and COCOeval accumulation. To keep training efficient, CDP-train runs COCO evaluation periodically rather than at every epoch. In the paper setting, COCO evaluation was run every five epochs, and the checkpoint with the best COCO score was kept.
 
 ```yaml
 use_coco_fitness: False
@@ -93,7 +99,7 @@ coco_start_epoch: 0
 
 | Parameter | Purpose |
 | --- | --- |
-| `use_coco_fitness` | Enables AP-aligned COCO fitness during training. |
+| `use_coco_fitness` | Enables COCO-driven checkpoint selection during training. |
 | `coco_eval_interval` | Runs COCO API every N epochs instead of every epoch. |
 | `coco_only_best` | Prevents non-COCO epochs from updating `best.pt`. |
 | `coco_start_epoch` | Skips early COCO evaluation to reduce warmup-stage overhead. |
@@ -175,15 +181,15 @@ results = model.val()
 
 ## Recommended Training Modes
 
-### AP-aligned research training
+### CDP-style fair comparison training
 
-Use this mode when the reported metric is COCO AP and checkpoint selection should follow the same protocol:
+Use this mode when the reported metric is COCO AP and model comparison should use the best COCO checkpoint observed during training:
 
 ```python
 model.train(
     save_json=True,
     use_coco_fitness=True,
-    coco_eval_interval=10,
+    coco_eval_interval=5,
     coco_only_best=True,
     coco_start_epoch=100,
 )
@@ -216,7 +222,7 @@ The following example is generated by the released visualization utilities and i
 
 | File | Role |
 | --- | --- |
-| [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py) | Adds AP-aligned fitness handling, resume parameter support, `best.pt` control, and SGD fallback. |
+| [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py) | Adds COCO-driven fitness handling, resume parameter support, `best.pt` control, and SGD fallback. |
 | [`ultralytics/engine/validator.py`](ultralytics/engine/validator.py) | Controls training-time JSON collection and scheduled COCO API calls. |
 | [`ultralytics/models/yolo/detect/val.py`](ultralytics/models/yolo/detect/val.py) | Implements custom annotation lookup, image ID mapping, and `pycocotools.COCOeval` metric writing. |
 | [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml) | Defines the COCO fitness configuration fields. |
@@ -232,21 +238,21 @@ The following example is generated by the released visualization utilities and i
 <details>
 <summary><b>How fitness is selected</b></summary>
 
-When COCO evaluation is enabled and runs successfully, `metrics/mAP50-95(B)` is written back to the validation stats. The trainer reads this value as `fitness`. If `coco_only_best=True`, epochs that skip COCO evaluation are assigned `-inf` fitness so they cannot replace the COCO-selected `best.pt`.
+When COCO evaluation is enabled and runs successfully, `metrics/mAP50-95(B)` is written back to the validation stats. The trainer reads this value as `fitness`. If `coco_only_best=True`, epochs that skip COCO evaluation are assigned `-inf` fitness so they cannot replace the best COCO-selected checkpoint.
 
 </details>
 
 <details>
 <summary><b>Why COCO evaluation is scheduled</b></summary>
 
-COCO API evaluation is more expensive than normal validation because it requires prediction collection, JSON writing, annotation loading, and full COCOeval accumulation. `coco_eval_interval` and `coco_start_epoch` reduce this overhead while keeping final model selection aligned with the reported AP protocol.
+COCO API evaluation is more expensive than normal validation because it requires prediction collection, JSON writing, annotation loading, and full COCOeval accumulation. `coco_eval_interval` and `coco_start_epoch` reduce this overhead while still allowing the training process to keep the best COCO checkpoint rather than only the final fixed-epoch checkpoint.
 
 </details>
 
 <details>
 <summary><b>What happens without pycocotools</b></summary>
 
-If `pycocotools` is not installed, the validator prints a warning and skips COCO API evaluation instead of crashing the training process. Install it with `pip install pycocotools` when AP-aligned model selection is required.
+If `pycocotools` is not installed, the validator prints a warning and skips COCO API evaluation instead of crashing the training process. Install it with `pip install pycocotools` when COCO-driven checkpoint selection is required.
 
 </details>
 
