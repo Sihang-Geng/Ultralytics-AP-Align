@@ -2,7 +2,7 @@
 
 # CDP Training Framework
 
-### COCO-driven peak checkpoint selection for fairer YOLO research comparisons
+### Open training and evaluation protocol for CDP-method experiments
 
 <p>
   <a href="https://github.com/Sihang-Geng/CDP-Training-Framework/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
@@ -13,7 +13,7 @@
 </p>
 
 <p>
-  <b>Fair checkpoint selection</b> |
+  <b>CDP experiment protocol</b> |
   <b>COCO AP during training</b> |
   <b>custom COCO JSON support</b> |
   <b>paper-style visualization scripts</b>
@@ -24,7 +24,7 @@
 > **Notice**
 > This repository is a personal modified fork of [Ultralytics](https://github.com/ultralytics/ultralytics), not an official Ultralytics repository. The upstream copyright notices and the GNU AGPL-3.0 license are retained.
 
-## Motivation at a Glance
+## Training Protocol Motivation
 
 > **Research pain point**  
 > Fixed-epoch final-checkpoint comparison can under-report a model that peaks early and overfits later.
@@ -35,7 +35,7 @@ When convergence speeds differ, an early-converging model can reach its peak AP 
 
 For COCO-style reporting, this issue is even more critical: if the paper metric is COCO AP, checkpoint selection should be aligned with COCO AP dynamics during training rather than with a fixed terminal epoch.
 
-| Research setting | Fixed final-epoch protocol | CDP training protocol |
+| Research setting | Fixed final-epoch protocol | Released protocol for CDP experiments |
 | --- | --- | --- |
 | Checkpoint selection | Last epoch only | Best COCO epoch over training |
 | Convergence mismatch | Early-converging models can be penalized | Different convergence speeds are handled fairly |
@@ -43,15 +43,15 @@ For COCO-style reporting, this issue is even more critical: if the paper metric 
 | Metric alignment | Selection metric may not match paper metric | Selection directly aligned with COCO `mAP50-95(B)` |
 | Comparison quality | Model quality mixed with timing effects | Closer to model-wise peak capability |
 
-| CDP core rule | Practical setup in this release |
+| Protocol core rule | Practical setup in this release |
 | --- | --- |
 | Evaluate COCO AP periodically during training and keep the best-scoring checkpoint | COCO API evaluation every `5` epochs in paper-style experiments |
 
 **Summary**
 
-- `CDP` is designed to reduce unfair model comparison caused by fixed-epoch final-checkpoint evaluation.
-- The framework compares models closer to their own peak COCO performance, instead of their late-stage endpoint.
-- This release targets a practical research bottleneck in ablation and cross-model benchmarking.
+- `CDP` in our manuscript is a method-level design (contour-detail-prior), not a checkpoint-selection heuristic.
+- The currently released part is the training/evaluation protocol used to benchmark CDP and baselines more consistently.
+- This protocol compares models closer to their peak COCO performance, reducing timing bias in ablation and cross-model studies.
 
 ## Qualitative Preview
 
@@ -76,7 +76,8 @@ This is a **partial research-code release** from an ongoing manuscript. Non-core
 | Custom COCO annotation lookup | Released | Support common non-standard COCO-style dataset layouts. |
 | Annotation-based image ID mapping | Released | Align prediction `image_id` with ground-truth COCO JSON. |
 | Visualization and plotting scripts | Released | Provide qualitative and figure-style outputs. |
-| Full unpublished method | Not released yet | To be supplemented after paper acceptance. |
+| CDP method core (contour-detail-prior) | Not released | Method internals remain unreleased before paper acceptance. |
+| Full unpublished method | Not released | To be supplemented after paper acceptance. |
 
 ## Visual Preview
 
@@ -107,7 +108,7 @@ The repository also releases plotting code used for figure-level analysis. The f
 
 ## Key Implementation Snippets
 
-The following excerpts are selected from the modified codebase to show how CDP behavior is implemented in practice.
+The following excerpts are selected from the modified codebase to show how the released training/evaluation protocol is implemented in practice.
 
 **1) Epoch-aware COCO evaluation scheduling (`validator.py`)**
 
@@ -142,7 +143,7 @@ if coco_fitness is not None:
 
 **3) `best.pt` update guard for non-COCO epochs (`trainer.py`)**
 
-If CDP mode is enabled and the current epoch did not run COCO eval, the epoch is blocked from replacing the best checkpoint.
+If protocol mode is enabled and the current epoch did not run COCO eval, the epoch is blocked from replacing the best checkpoint.
 
 ```python
 coco_eval = metrics.pop("coco_eval", 0.0)
@@ -164,7 +165,7 @@ for img in data.get("images", []):
     self.img_id_map[Path(img["file_name"]).stem] = img["id"]  # stem fallback
 ```
 
-These four parts jointly define the released CDP mechanism: scheduled COCO eval, metric-aligned fitness assignment, strict best-checkpoint filtering, and robust COCO ID consistency.
+These four parts define the released protocol stack: scheduled COCO eval, metric-aligned fitness assignment, strict best-checkpoint filtering, and robust COCO ID consistency.
 
 ## Core Switches
 
