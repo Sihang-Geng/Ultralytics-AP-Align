@@ -141,6 +141,20 @@ class BaseValidator:
         self.training = trainer is not None
         augment = self.args.augment and (not self.training)
         if self.training:
+            # Optimize: Only enable save_json (expensive) if COCO eval is needed this epoch
+            if getattr(trainer.args, "use_coco_fitness", False):
+                eval_interval = getattr(trainer.args, "coco_eval_interval", 1) or 1
+                start_epoch = getattr(trainer.args, "coco_start_epoch", 0) or 0
+                coco_eval_this_epoch = (
+                    ((trainer.epoch + 1) >= start_epoch)
+                    and (
+                        (eval_interval <= 1)
+                        or ((trainer.epoch + 1) % eval_interval == 0)
+                        or ((trainer.epoch + 1) == trainer.epochs)
+                    )
+                )
+                self.args.save_json = coco_eval_this_epoch
+
             self.device = trainer.device
             self.data = trainer.data
             # Force FP16 val during training
@@ -249,6 +263,35 @@ class BaseValidator:
                 dist.reduce(loss, dst=0, op=dist.ReduceOp.AVG)
             if RANK > 0:
                 return
+            if getattr(trainer.args, "use_coco_fitness", False):
+                stats["coco_eval"] = 0.0
+                eval_interval = getattr(trainer.args, "coco_eval_interval", 1) or 1
+                start_epoch = getattr(trainer.args, "coco_start_epoch", 0) or 0
+                coco_eval_this_epoch = (
+                    ((trainer.epoch + 1) >= start_epoch)
+                    and (
+                        (eval_interval <= 1)
+                        or ((trainer.epoch + 1) % eval_interval == 0)
+                        or ((trainer.epoch + 1) == trainer.epochs)
+                    )
+                )
+
+                if coco_eval_this_epoch:
+                    if not self.args.save_json:
+                        LOGGER.warning("use_coco_fitness=True but save_json=False, skipping COCO evaluation.")
+                    elif self.jdict:
+                        pred_json_path = self.save_dir / "predictions.json"
+                        LOGGER.info(f"Saving training validation predictions to {pred_json_path}...")
+                        with open(str(pred_json_path), "w", encoding="utf-8") as f:
+                            json.dump(self.jdict, f)
+                        stats = self.eval_json(stats)
+                        coco_fitness = stats.get("metrics/mAP50-95(B)")
+                        if coco_fitness is not None:
+                            stats["fitness"] = coco_fitness
+                            LOGGER.info(f"COCO fitness set to {coco_fitness:.6f}")
+                            stats["coco_eval"] = 1.0
+                else:
+                    LOGGER.info(f"Skipping COCO evaluation for epoch {trainer.epoch + 1}")
             results = {**stats, **trainer.label_loss_items(loss.cpu() / len(self.dataloader), prefix="val")}
             return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
         else:

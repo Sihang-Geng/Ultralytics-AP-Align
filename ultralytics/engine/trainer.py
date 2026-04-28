@@ -16,7 +16,6 @@ import time
 import warnings
 from copy import copy, deepcopy
 from datetime import datetime, timedelta
-from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +27,6 @@ from ultralytics import __version__
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset
 from ultralytics.nn.tasks import load_checkpoint
-from ultralytics.optim import MuSGD
 from ultralytics.utils import (
     DEFAULT_CFG,
     GIT,
@@ -126,6 +124,15 @@ class BaseTrainer:
         self.args = get_cfg(cfg, overrides)
         self.check_resume(overrides)
         self.device = select_device(self.args.device)
+        if getattr(self.args, "use_coco_fitness", None) is None:
+            self.args.use_coco_fitness = True
+        if self.args.use_coco_fitness:
+            if not self.args.save_json:
+                self.args.save_json = True
+            if getattr(self.args, "coco_eval_interval", None) is None:
+                self.args.coco_eval_interval = 1
+            if getattr(self.args, "coco_only_best", None) is None:
+                self.args.coco_only_best = True
         # Update "-1" devices so post-training val does not repeat search
         self.args.device = os.getenv("CUDA_VISIBLE_DEVICES") if "cuda" in str(self.device) else str(self.device)
         self.validator = None
@@ -675,6 +682,10 @@ class BaseTrainer:
             (dict): Optional checkpoint to resume training from.
         """
         if isinstance(self.model, torch.nn.Module):  # if model is loaded beforehand. No setup needed
+            if self.resume or self.args.resume:
+                LOGGER.info(f"DEBUG: Forcing checkpoint load for resume. Model: {self.args.model}")
+                weights, ckpt = load_checkpoint(self.args.model)
+                return ckpt
             return
 
         cfg, weights = self.model, None
@@ -715,8 +726,13 @@ class BaseTrainer:
         metrics = self.validator(self)
         if metrics is None:
             return None, None
+        coco_eval = metrics.pop("coco_eval", 0.0)
         fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())  # use loss as fitness measure if not found
-        if not self.best_fitness or self.best_fitness < fitness:
+        if self.args.use_coco_fitness and self.args.coco_only_best and not coco_eval:
+            fitness = float("-inf")
+
+        # Only update best_fitness if fitness is valid (greater than -inf)
+        if (not self.best_fitness or self.best_fitness < fitness) and fitness > float("-inf"):
             self.best_fitness = fitness
         return metrics, fitness
 
@@ -831,6 +847,12 @@ class BaseTrainer:
                     "freeze",
                     "val",
                     "plots",
+                    "epochs",
+                    "save_json",
+                    "use_coco_fitness",
+                    "coco_eval_interval",
+                    "coco_only_best",
+                    "coco_start_epoch",
                 ):  # allow arg updates to reduce memory or update device on resume
                     if k in overrides:
                         setattr(self.args, k, overrides[k])
@@ -844,6 +866,8 @@ class BaseTrainer:
                         "'augmentations' parameter again to get expected results. Example: \n"
                         f"model.train(resume=True, augmentations={ckpt_args['augmentations']})"
                     )
+
+                LOGGER.info(f"DEBUG: check_resume completed. Resume: {resume}, Model: {self.args.model}")
 
             except Exception as e:
                 raise FileNotFoundError(
@@ -897,19 +921,21 @@ class BaseTrainer:
 
     def resume_training(self, ckpt):
         """Resume YOLO training from given epoch and best fitness."""
+        LOGGER.info(f"DEBUG: resume_training called. ckpt is {'None' if ckpt is None else 'Present'}, resume={self.resume}")
         if ckpt is None or not self.resume:
             return
         start_epoch = ckpt.get("epoch", -1) + 1
-        assert start_epoch > 0, (
-            f"{self.args.model} training to {self.epochs} epochs is finished, nothing to resume.\n"
-            f"Start a new training without resuming, i.e. 'yolo train model={self.args.model}'"
-        )
-        LOGGER.info(f"Resuming training {self.args.model} from epoch {start_epoch + 1} to {self.epochs} total epochs")
-        if self.epochs < start_epoch:
-            LOGGER.info(
-                f"{self.model} has been trained for {ckpt['epoch']} epochs. Fine-tuning for {self.epochs} more epochs."
+
+        # Handle finetuning/extended training: if current epochs > ckpt epoch, allow resume
+        if self.epochs <= start_epoch:
+             assert start_epoch > 0, (
+                f"{self.args.model} training to {self.epochs} epochs is finished, nothing to resume.\n"
+                f"Start a new training without resuming, i.e. 'yolo train model={self.args.model}'"
             )
-            self.epochs += ckpt["epoch"]  # finetune additional epochs
+
+        LOGGER.info(f"Resuming training {self.args.model} from epoch {start_epoch + 1} to {self.epochs} total epochs")
+        # Removed the confusing "if self.epochs < start_epoch" block which was auto-adding epochs incorrectly
+
         self._load_checkpoint_state(ckpt)
         self.start_epoch = start_epoch
         if start_epoch > (self.epochs - self.args.close_mosaic):
@@ -948,32 +974,29 @@ class BaseTrainer:
             )
             nc = self.data.get("nc", 10)  # number of classes
             lr_fit = round(0.002 * 5 / (4 + nc), 6)  # lr0 fit equation to 6 decimal places
-            name, lr, momentum = ("MuSGD", 0.01, 0.9) if iterations > 10000 else ("AdamW", lr_fit, 0.9)
+            name, lr, momentum = ("SGD", 0.01, 0.9) if iterations > 10000 else ("AdamW", lr_fit, 0.9)
             self.args.warmup_bias_lr = 0.0  # no higher than 0.01 for Adam
-
-        use_muon = name == "MuSGD"
+        if name.lower() == "musgd":
+            name = "SGD"
         for module_name, module in unwrap_model(model).named_modules():
             for param_name, param in module.named_parameters(recurse=False):
                 fullname = f"{module_name}.{param_name}" if module_name else param_name
-                if param.ndim >= 2 and use_muon:
-                    g[3][fullname] = param  # muon params
-                elif "bias" in fullname:  # bias (no decay)
+                if "bias" in fullname:  # bias (no decay)
                     g[2][fullname] = param
                 elif isinstance(module, bn) or "logit_scale" in fullname:  # weight (no decay)
                     # ContrastiveHead and BNContrastiveHead included here with 'logit_scale'
                     g[1][fullname] = param
                 else:  # weight (with decay)
                     g[0][fullname] = param
-        if not use_muon:
-            g = [x.values() for x in g[:3]]  # convert to list of params
+        g = [x.values() for x in g[:3]]  # convert to list of params
 
-        optimizers = {"Adam", "Adamax", "AdamW", "NAdam", "RAdam", "RMSProp", "SGD", "MuSGD", "auto"}
+        optimizers = {"Adam", "Adamax", "AdamW", "NAdam", "RAdam", "RMSProp", "SGD", "auto", "MuSGD"}
         name = {x.lower(): x for x in optimizers}.get(name.lower())
         if name in {"Adam", "Adamax", "AdamW", "NAdam", "RAdam"}:
             optim_args = dict(lr=lr, betas=(momentum, 0.999), weight_decay=0.0)
         elif name == "RMSProp":
             optim_args = dict(lr=lr, momentum=momentum)
-        elif name == "SGD" or name == "MuSGD":
+        elif name == "SGD":
             optim_args = dict(lr=lr, momentum=momentum, nesterov=True)
         else:
             raise NotImplementedError(
@@ -985,22 +1008,7 @@ class BaseTrainer:
         g[2] = {"params": g[2], **optim_args, "param_group": "bias"}
         g[0] = {"params": g[0], **optim_args, "weight_decay": decay, "param_group": "weight"}
         g[1] = {"params": g[1], **optim_args, "weight_decay": 0.0, "param_group": "bn"}
-        muon, sgd = (0.2, 1.0)
-        if use_muon:
-            num_params[0] = len(g[3])  # update number of params
-            g[3] = {"params": g[3], **optim_args, "weight_decay": decay, "use_muon": True, "param_group": "muon"}
-            import re
-
-            # higher lr for certain parameters in MuSGD when funetuning
-            pattern = re.compile(r"(?=.*23)(?=.*cv3)|proto\.semseg")
-            g_ = []  # new param groups
-            for x in g:
-                p = x.pop("params")
-                p1 = [v for k, v in p.items() if pattern.search(k)]
-                p2 = [v for k, v in p.items() if not pattern.search(k)]
-                g_.extend([{"params": p1, **x, "lr": lr * 3}, {"params": p2, **x}])
-            g = g_
-        optimizer = getattr(optim, name, partial(MuSGD, muon=muon, sgd=sgd))(params=g)
+        optimizer = getattr(optim, name)(params=g)
 
         LOGGER.info(
             f"{colorstr('optimizer:')} {type(optimizer).__name__}(lr={lr}, momentum={momentum}) with parameter groups "

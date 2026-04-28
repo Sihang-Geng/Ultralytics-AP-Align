@@ -209,18 +209,6 @@ class SPPF(nn.Module):
     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
 
     def __init__(self, c1: int, c2: int, k: int = 5, n: int = 3, shortcut: bool = False):
-        """Initialize the SPPF layer with given input/output channels and kernel size.
-
-        Args:
-            c1 (int): Input channels.
-            c2 (int): Output channels.
-            k (int): Kernel size.
-            n (int): Number of pooling iterations.
-            shortcut (bool): Whether to use shortcut connection.
-
-        Notes:
-            This module is equivalent to SPP(k=(5, 9, 13)).
-        """
         super().__init__()
         c_ = c1 // 2  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1, act=False)

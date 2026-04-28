@@ -13,9 +13,14 @@ import torch.distributed as dist
 from ultralytics.data import build_dataloader, build_yolo_dataset, converter
 from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, RANK, nms, ops
-from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.utils.plotting import plot_images
+try:
+    from pycocotools.coco import COCO
+    from pycocotools.cocoeval import COCOeval
+except ImportError:
+    COCO = None
+    COCOeval = None
 
 
 class DetectionValidator(BaseValidator):
@@ -93,6 +98,46 @@ class DetectionValidator(BaseValidator):
         self.names = model.names
         self.nc = len(model.names)
         self.end2end = getattr(model, "end2end", False)
+
+        # New logic: Try to load COCO annotations to build filename->ID map
+        self.anno_json = None
+        self.img_id_map = {}
+        if self.args.save_json:
+            anno_json = (
+                self.data["path"]
+                / "annotations"
+                / ("instances_val2017.json" if self.is_coco else f"lvis_v1_{self.args.split}.json")
+            )
+            if not anno_json.is_file() and not (self.is_coco or self.is_lvis):
+                candidates = [
+                    self.data["path"] / "instances_val2017.json",
+                    self.data["path"] / "annotations" / "instances_val2017.json",
+                    self.data["path"] / "annotations" / "instances_val.json",
+                    self.data["path"] / "annotations" / f"instances_{self.args.split}.json",
+                    self.data["path"] / "val" / "_annotations.coco.json",
+                    self.data["path"] / "instances_val.json",
+                    self.data["path"] / "_annotations.coco.json",
+                ]
+                for candidate in candidates:
+                    if candidate.is_file():
+                        anno_json = candidate
+                        break
+
+            if anno_json and anno_json.is_file():
+                self.anno_json = anno_json
+                try:
+                    import json
+                    LOGGER.info(f"Loading annotations for image ID mapping from {anno_json}...")
+                    with open(anno_json) as f:
+                        data = json.load(f)
+                        # Build map: filename -> id
+                        # Some datasets might use full path or just filename. We map both if possible or just filename.
+                        # COCO uses file_name (e.g. '000000000139.jpg')
+                        for img in data.get('images', []):
+                            self.img_id_map[Path(img['file_name']).name] = img['id']
+                            self.img_id_map[Path(img['file_name']).stem] = img['id'] # fallback for stem match
+                except Exception as e:
+                    LOGGER.warning(f"Failed to load annotations for ID mapping: {e}")
         self.seen = 0
         self.jdict = []
         self.metrics.names = model.names
@@ -401,7 +446,14 @@ class DetectionValidator(BaseValidator):
         """
         path = Path(pbatch["im_file"])
         stem = path.stem
-        image_id = int(stem) if stem.isnumeric() else stem
+        # Try to match by filename first, then stem using the pre-loaded map
+        image_id = self.img_id_map.get(path.name)
+        if image_id is None:
+            image_id = self.img_id_map.get(stem)
+
+        if image_id is None:
+             image_id = int(stem) if stem.isnumeric() else stem
+
         box = ops.xyxy2xywh(predn["bboxes"])  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
         for b, s, c in zip(box.tolist(), predn["conf"].tolist(), predn["cls"].tolist()):
@@ -442,6 +494,21 @@ class DetectionValidator(BaseValidator):
             / "annotations"
             / ("instances_val2017.json" if self.is_coco else f"lvis_v1_{self.args.split}.json")
         )  # annotations
+        if not anno_json.is_file() and not (self.is_coco or self.is_lvis):
+            candidates = [
+                self.data["path"] / "instances_val2017.json",
+                self.data["path"] / "annotations" / "instances_val2017.json",
+                self.data["path"] / "annotations" / "instances_val.json",
+                self.data["path"] / "annotations" / f"instances_{self.args.split}.json",
+                self.data["path"] / "val" / "_annotations.coco.json",
+                self.data["path"] / "instances_val.json",
+                self.data["path"] / "_annotations.coco.json",
+            ]
+            for candidate in candidates:
+                if candidate.is_file():
+                    anno_json = candidate
+                    LOGGER.info(f"Using custom COCO annotations: {anno_json}")
+                    break
         return self.coco_evaluate(stats, pred_json, anno_json)
 
     def coco_evaluate(
@@ -470,44 +537,51 @@ class DetectionValidator(BaseValidator):
         Returns:
             (dict[str, Any]): Updated stats dictionary containing the computed COCO/LVIS evaluation metrics.
         """
-        if self.args.save_json and (self.is_coco or self.is_lvis) and len(self.jdict):
-            LOGGER.info(f"\nEvaluating faster-coco-eval mAP using {pred_json} and {anno_json}...")
+        if self.args.save_json and len(self.jdict):
+            if COCO is None or COCOeval is None:
+                LOGGER.warning("pycocotools is not installed, skipping COCO evaluation.")
+                return stats
+            LOGGER.info(f"\nEvaluating COCO mAP using {pred_json} and {anno_json}...")
             try:
                 for x in pred_json, anno_json:
-                    assert x.is_file(), f"{x} file not found"
+                    assert Path(x).is_file(), f"{x} file not found"
                 iou_types = [iou_types] if isinstance(iou_types, str) else iou_types
                 suffix = [suffix] if isinstance(suffix, str) else suffix
-                check_requirements("faster-coco-eval>=1.6.7")
-                from faster_coco_eval import COCO, COCOeval_faster
-
-                anno = COCO(anno_json)
-                pred = anno.loadRes(pred_json)
+                anno = COCO(str(anno_json))
+                pred = anno.loadRes(str(pred_json))
+                cat_ids = list(anno.cats.keys())
+                img_ids = list(anno.imgs.keys())
+                if cat_ids or img_ids:
+                    LOGGER.info(f"COCO categories: {cat_ids[:10]} images: {img_ids[:10]}")
                 for i, iou_type in enumerate(iou_types):
-                    val = COCOeval_faster(
-                        anno, pred, iouType=iou_type, lvis_style=self.is_lvis, print_function=LOGGER.info
-                    )
-                    val.params.imgIds = [int(Path(x).stem) for x in self.dataloader.dataset.im_files]  # images to eval
+                    val = COCOeval(anno, pred, iouType=iou_type)
+                    # Handle both integer and string image IDs (common in custom datasets)
+                    img_ids = []
+                    for x in self.dataloader.dataset.im_files:
+                        p = Path(x)
+                        if hasattr(self, 'img_id_map') and self.img_id_map and p.name in self.img_id_map:
+                            img_ids.append(self.img_id_map[p.name])
+                        elif hasattr(self, 'img_id_map') and self.img_id_map and p.stem in self.img_id_map:
+                            img_ids.append(self.img_id_map[p.stem])
+                        else:
+                            try:
+                                img_ids.append(int(p.stem))
+                            except ValueError:
+                                img_ids.append(p.stem)
+                    val.params.imgIds = img_ids
                     val.evaluate()
                     val.accumulate()
                     val.summarize()
 
                     # update mAP50-95 and mAP50
-                    stats[f"metrics/mAP50({suffix[i][0]})"] = val.stats_as_dict["AP_50"]
-                    stats[f"metrics/mAP50-95({suffix[i][0]})"] = val.stats_as_dict["AP_all"]
+                    stats[f"metrics/mAP50({suffix[i][0]})"] = val.stats[1]
+                    stats[f"metrics/mAP50-95({suffix[i][0]})"] = val.stats[0]
                     # record mAP for small, medium, large objects as well
-                    stats["metrics/mAP_small(B)"] = val.stats_as_dict["AP_small"]
-                    stats["metrics/mAP_medium(B)"] = val.stats_as_dict["AP_medium"]
-                    stats["metrics/mAP_large(B)"] = val.stats_as_dict["AP_large"]
+                    stats["metrics/mAP_small(B)"] = val.stats[3]
+                    stats["metrics/mAP_medium(B)"] = val.stats[4]
+                    stats["metrics/mAP_large(B)"] = val.stats[5]
                     # update fitness
-                    stats["fitness"] = 0.9 * val.stats_as_dict["AP_all"] + 0.1 * val.stats_as_dict["AP_50"]
-
-                    if self.is_lvis:
-                        stats[f"metrics/APr({suffix[i][0]})"] = val.stats_as_dict["APr"]
-                        stats[f"metrics/APc({suffix[i][0]})"] = val.stats_as_dict["APc"]
-                        stats[f"metrics/APf({suffix[i][0]})"] = val.stats_as_dict["APf"]
-
-                if self.is_lvis:
-                    stats["fitness"] = stats["metrics/mAP50-95(B)"]  # always use box mAP50-95 for fitness
+                    stats["fitness"] = 0.9 * val.stats[0] + 0.1 * val.stats[1]
             except Exception as e:
-                LOGGER.warning(f"faster-coco-eval unable to run: {e}")
+                LOGGER.warning(f"pycocotools unable to run: {e}")
         return stats
