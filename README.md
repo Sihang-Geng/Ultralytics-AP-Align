@@ -2,8 +2,6 @@
 
 # CDP Training Framework
 
-### COCO-driven peak checkpoint selection for fairer YOLO research comparisons
-
 <p>
   <a href="https://github.com/Sihang-Geng/CDP-Training-Framework/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white">
