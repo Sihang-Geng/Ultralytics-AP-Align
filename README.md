@@ -105,6 +105,67 @@ The repository also releases plotting code used for figure-level analysis. The f
 | 3D visualization | [`ultralytics/3d.py`](ultralytics/3d.py) | 3D visualization helper. |
 | Technical notes | [Change notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md) | Detailed implementation notes. |
 
+## Key Implementation Snippets
+
+The following excerpts are selected from the modified codebase to show how CDP behavior is implemented in practice.
+
+**1) Epoch-aware COCO evaluation scheduling (`validator.py`)**
+
+Only selected epochs enable JSON export and COCO API evaluation, which controls overhead while preserving peak tracking.
+
+```python
+eval_interval = getattr(trainer.args, "coco_eval_interval", 1) or 1
+start_epoch = getattr(trainer.args, "coco_start_epoch", 0) or 0
+coco_eval_this_epoch = (
+    ((trainer.epoch + 1) >= start_epoch)
+    and (
+        (eval_interval <= 1)
+        or ((trainer.epoch + 1) % eval_interval == 0)
+        or ((trainer.epoch + 1) == trainer.epochs)
+    )
+)
+self.args.save_json = coco_eval_this_epoch
+```
+
+**2) COCO score write-back as training fitness (`validator.py`)**
+
+When COCO evaluation runs successfully, `mAP50-95(B)` is explicitly written into `fitness`.
+
+```python
+stats = self.eval_json(stats)
+coco_fitness = stats.get("metrics/mAP50-95(B)")
+if coco_fitness is not None:
+    stats["fitness"] = coco_fitness
+    LOGGER.info(f"COCO fitness set to {coco_fitness:.6f}")
+    stats["coco_eval"] = 1.0
+```
+
+**3) `best.pt` update guard for non-COCO epochs (`trainer.py`)**
+
+If CDP mode is enabled and the current epoch did not run COCO eval, the epoch is blocked from replacing the best checkpoint.
+
+```python
+coco_eval = metrics.pop("coco_eval", 0.0)
+fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())
+if self.args.use_coco_fitness and self.args.coco_only_best and not coco_eval:
+    fitness = float("-inf")
+
+if (not self.best_fitness or self.best_fitness < fitness) and fitness > float("-inf"):
+    self.best_fitness = fitness
+```
+
+**4) Annotation-based image ID alignment (`detect/val.py`)**
+
+For non-standard COCO-style datasets, filename/stem to `image_id` mapping is built from annotation JSON.
+
+```python
+for img in data.get("images", []):
+    self.img_id_map[Path(img["file_name"]).name] = img["id"]
+    self.img_id_map[Path(img["file_name"]).stem] = img["id"]  # stem fallback
+```
+
+These four parts jointly define the released CDP mechanism: scheduled COCO eval, metric-aligned fitness assignment, strict best-checkpoint filtering, and robust COCO ID consistency.
+
 ## Core Switches
 
 | Parameter | Role | Recommended research setting |
