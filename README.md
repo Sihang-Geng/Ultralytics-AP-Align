@@ -29,11 +29,11 @@
 > **Research pain point**  
 > Fixed-epoch final-checkpoint comparison can under-report a model that peaks early and overfits later.
 
-In mainstream object detection workflows, many model variants are trained for the same fixed epoch budget, and evaluation APIs are called on the final checkpoint for reporting. This protocol is operationally simple, but it introduces a fairness risk in research comparison.
+In mainstream detection research, most papers align final comparison with **COCO AP**. However, in many practical training pipelines based on the upstream repository, model selection is still driven by default in-training metrics and fixed-length training.
 
-When convergence speeds differ, an early-converging model can reach its peak AP mid-training and then degrade due to late-stage overfitting. If only the final checkpoint is reported, the model is measured after performance drop, while slower-converging models may still be near their best region. In this case, final-epoch comparison mixes model quality with convergence timing.
+In our experiments, the default in-training `mAP` trace is often numerically higher than COCO API AP, but this higher value does **not** guarantee higher COCO AP. More importantly, AP degradation commonly appears earlier than the default `mAP` convergence signal. As a result, if all models are forced to the same final epoch and evaluated only once at the end, early-converging models are more likely to be measured after overfitting, while other models may still be near peak.
 
-For COCO-style reporting, this issue is even more critical: if the paper metric is COCO AP, checkpoint selection should be aligned with COCO AP dynamics during training rather than with a fixed terminal epoch.
+This creates a real fairness problem in ablation and cross-model benchmarking: reported differences can be mixed with convergence timing effects, not only method quality. For COCO-style reporting, checkpoint selection must be aligned with COCO AP itself.
 
 | Research setting | Fixed final-epoch protocol | CDP Training Framework |
 | --- | --- | --- |
@@ -49,9 +49,9 @@ For COCO-style reporting, this issue is even more critical: if the paper metric 
 
 **Summary**
 
-- In many YOLO-based research pipelines, models are trained for a fixed number of epochs and then evaluated by API only on the final checkpoint.
-- This can introduce unfair comparison: early-converging models may already overfit after reaching their peak, so final-epoch AP no longer reflects their best achievable performance.
-- CDP Training Framework addresses this by running scheduled COCO evaluation during training and selecting each model by its best COCO checkpoint, improving fairness in ablation and cross-model benchmarking.
+- Mainstream papers report COCO AP, but default fixed-epoch training flows can select checkpoints using signals that are not strictly AP-aligned.
+- Default in-training `mAP` being higher does not imply AP superiority; AP can decline earlier than `mAP` convergence and hide overfitting if only final checkpoints are compared.
+- CDP Training Framework solves this by periodic COCO API evaluation and best-AP checkpoint selection, making research comparison more convincing and method attribution more reliable.
 
 ## Qualitative Preview
 
