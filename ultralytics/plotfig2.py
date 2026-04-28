@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import gc
 import os
-from typing import List, Optional, Tuple
 
 import cv2
 import matplotlib
@@ -98,8 +99,22 @@ def process_single_image(img_path: str, save_path: str) -> bool:
             alpha=EDGE_ALPHA,
         )
 
-    ax.plot([0, target_size, target_size, 0, 0], [0, 0, target_size, target_size, 0], [ceiling_z] * 5, color=EDGE_COLOR, linewidth=EDGE_LW_SOLID, alpha=EDGE_ALPHA)
-    ax.plot([0, target_size, target_size, 0, 0], [0, 0, target_size, target_size, 0], [0] * 5, color=EDGE_COLOR, linewidth=EDGE_LW_SOLID, alpha=EDGE_ALPHA)
+    ax.plot(
+        [0, target_size, target_size, 0, 0],
+        [0, 0, target_size, target_size, 0],
+        [ceiling_z] * 5,
+        color=EDGE_COLOR,
+        linewidth=EDGE_LW_SOLID,
+        alpha=EDGE_ALPHA,
+    )
+    ax.plot(
+        [0, target_size, target_size, 0, 0],
+        [0, 0, target_size, target_size, 0],
+        [0] * 5,
+        color=EDGE_COLOR,
+        linewidth=EDGE_LW_SOLID,
+        alpha=EDGE_ALPHA,
+    )
 
     ax.view_init(elev=26, azim=-58)
     ax.set_zlim(0, ceiling_z)
@@ -116,7 +131,7 @@ def process_single_image(img_path: str, save_path: str) -> bool:
     return True
 
 
-def find_numbered_file(input_dir: str, idx: int) -> Optional[str]:
+def find_numbered_file(input_dir: str, idx: int) -> str | None:
     for ext in SUPPORTED_EXTS:
         candidate = os.path.join(input_dir, f"{idx}{ext}")
         if os.path.exists(candidate):
@@ -124,9 +139,9 @@ def find_numbered_file(input_dir: str, idx: int) -> Optional[str]:
     return None
 
 
-def render_fixed_1_to_8(input_dir: str, single_output_dir: str) -> List[Tuple[int, str]]:
+def render_fixed_1_to_8(input_dir: str, single_output_dir: str) -> list[tuple[int, str]]:
     os.makedirs(single_output_dir, exist_ok=True)
-    rendered_items: List[Tuple[int, str]] = []
+    rendered_items: list[tuple[int, str]] = []
     for idx in range(1, 9):
         src = find_numbered_file(input_dir, idx)
         if src is None:
@@ -139,7 +154,7 @@ def render_fixed_1_to_8(input_dir: str, single_output_dir: str) -> List[Tuple[in
     return rendered_items
 
 
-def assemble_2x4(rendered_items: List[Tuple[int, str]], output_path: str) -> None:
+def assemble_2x4(rendered_items: list[tuple[int, str]], output_path: str) -> None:
     path_map = {idx: path for idx, path in rendered_items}
     fig, axes = plt.subplots(2, 4, figsize=(18.5, 10))
     labels = [str(i) for i in range(1, 9)]
