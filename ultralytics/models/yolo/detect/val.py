@@ -15,6 +15,7 @@ from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, RANK, nms, ops
 from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.utils.plotting import plot_images
+
 try:
     from pycocotools.coco import COCO
     from pycocotools.cocoeval import COCOeval
@@ -127,15 +128,16 @@ class DetectionValidator(BaseValidator):
                 self.anno_json = anno_json
                 try:
                     import json
+
                     LOGGER.info(f"Loading annotations for image ID mapping from {anno_json}...")
                     with open(anno_json) as f:
                         data = json.load(f)
                         # Build map: filename -> id
                         # Some datasets might use full path or just filename. We map both if possible or just filename.
                         # COCO uses file_name (e.g. '000000000139.jpg')
-                        for img in data.get('images', []):
-                            self.img_id_map[Path(img['file_name']).name] = img['id']
-                            self.img_id_map[Path(img['file_name']).stem] = img['id'] # fallback for stem match
+                        for img in data.get("images", []):
+                            self.img_id_map[Path(img["file_name"]).name] = img["id"]
+                            self.img_id_map[Path(img["file_name"]).stem] = img["id"]  # fallback for stem match
                 except Exception as e:
                     LOGGER.warning(f"Failed to load annotations for ID mapping: {e}")
         self.seen = 0
@@ -452,7 +454,7 @@ class DetectionValidator(BaseValidator):
             image_id = self.img_id_map.get(stem)
 
         if image_id is None:
-             image_id = int(stem) if stem.isnumeric() else stem
+            image_id = int(stem) if stem.isnumeric() else stem
 
         box = ops.xyxy2xywh(predn["bboxes"])  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
@@ -559,9 +561,9 @@ class DetectionValidator(BaseValidator):
                     img_ids = []
                     for x in self.dataloader.dataset.im_files:
                         p = Path(x)
-                        if hasattr(self, 'img_id_map') and self.img_id_map and p.name in self.img_id_map:
+                        if hasattr(self, "img_id_map") and self.img_id_map and p.name in self.img_id_map:
                             img_ids.append(self.img_id_map[p.name])
-                        elif hasattr(self, 'img_id_map') and self.img_id_map and p.stem in self.img_id_map:
+                        elif hasattr(self, "img_id_map") and self.img_id_map and p.stem in self.img_id_map:
                             img_ids.append(self.img_id_map[p.stem])
                         else:
                             try:
