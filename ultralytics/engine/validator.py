@@ -145,13 +145,10 @@ class BaseValidator:
             if getattr(trainer.args, "use_coco_fitness", False):
                 eval_interval = getattr(trainer.args, "coco_eval_interval", 1) or 1
                 start_epoch = getattr(trainer.args, "coco_start_epoch", 0) or 0
-                coco_eval_this_epoch = (
-                    ((trainer.epoch + 1) >= start_epoch)
-                    and (
-                        (eval_interval <= 1)
-                        or ((trainer.epoch + 1) % eval_interval == 0)
-                        or ((trainer.epoch + 1) == trainer.epochs)
-                    )
+                coco_eval_this_epoch = ((trainer.epoch + 1) >= start_epoch) and (
+                    (eval_interval <= 1)
+                    or ((trainer.epoch + 1) % eval_interval == 0)
+                    or ((trainer.epoch + 1) == trainer.epochs)
                 )
                 self.args.save_json = coco_eval_this_epoch
 
@@ -267,13 +264,10 @@ class BaseValidator:
                 stats["coco_eval"] = 0.0
                 eval_interval = getattr(trainer.args, "coco_eval_interval", 1) or 1
                 start_epoch = getattr(trainer.args, "coco_start_epoch", 0) or 0
-                coco_eval_this_epoch = (
-                    ((trainer.epoch + 1) >= start_epoch)
-                    and (
-                        (eval_interval <= 1)
-                        or ((trainer.epoch + 1) % eval_interval == 0)
-                        or ((trainer.epoch + 1) == trainer.epochs)
-                    )
+                coco_eval_this_epoch = ((trainer.epoch + 1) >= start_epoch) and (
+                    (eval_interval <= 1)
+                    or ((trainer.epoch + 1) % eval_interval == 0)
+                    or ((trainer.epoch + 1) == trainer.epochs)
                 )
 
                 if coco_eval_this_epoch:
