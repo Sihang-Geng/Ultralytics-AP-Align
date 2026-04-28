@@ -52,24 +52,24 @@ The figure below is an example output produced by the plotting code released in 
 
 ## Released Scope
 
-| Part | Status | Description |
-| --- | --- | --- |
-| Training configuration | Released | Adds COCO fitness switches and training examples. |
-| Training-time COCO evaluation | Released | Runs COCO API evaluation during selected validation epochs. |
-| Custom COCO JSON handling | Released | Searches common annotation paths and maps filenames to COCO image IDs. |
-| Visualization and plotting scripts | Released | Includes scripts used to generate qualitative and figure-style outputs. |
-| Full research method | Not released here | Core unpublished research components are intentionally outside this repository. |
+| Part                               | Status            | Description                                                                     |
+| ---------------------------------- | ----------------- | ------------------------------------------------------------------------------- |
+| Training configuration             | Released          | Adds COCO fitness switches and training examples.                               |
+| Training-time COCO evaluation      | Released          | Runs COCO API evaluation during selected validation epochs.                     |
+| Custom COCO JSON handling          | Released          | Searches common annotation paths and maps filenames to COCO image IDs.          |
+| Visualization and plotting scripts | Released          | Includes scripts used to generate qualitative and figure-style outputs.         |
+| Full research method               | Not released here | Core unpublished research components are intentionally outside this repository. |
 
 ## Main Code Changes
 
-| Area | Main change | Why it matters |
-| --- | --- | --- |
-| Trainer | Adds COCO fitness controls in `BaseTrainer` | Allows `best.pt` to follow COCO `mAP50-95(B)`. |
-| Validator | Schedules JSON collection and COCO API calls by epoch | Reduces unnecessary evaluation overhead during long training. |
-| Detection validation | Uses `pycocotools` and custom annotation lookup | Supports COCO-style custom datasets outside the official COCO layout. |
-| Image ID mapping | Reads `file_name -> image_id` from annotation JSON | Avoids incorrect COCO results when filenames are not numeric IDs. |
-| Optimizer path | Falls back from `MuSGD` to standard `SGD` | Keeps training runnable in environments without the custom optimizer. |
-| Scripts | Releases training, COCO test, plotting, and visualization scripts | Makes the non-core experiment utilities inspectable and reusable. |
+| Area                 | Main change                                                       | Why it matters                                                        |
+| -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Trainer              | Adds COCO fitness controls in `BaseTrainer`                       | Allows `best.pt` to follow COCO `mAP50-95(B)`.                        |
+| Validator            | Schedules JSON collection and COCO API calls by epoch             | Reduces unnecessary evaluation overhead during long training.         |
+| Detection validation | Uses `pycocotools` and custom annotation lookup                   | Supports COCO-style custom datasets outside the official COCO layout. |
+| Image ID mapping     | Reads `file_name -> image_id` from annotation JSON                | Avoids incorrect COCO results when filenames are not numeric IDs.     |
+| Optimizer path       | Falls back from `MuSGD` to standard `SGD`                         | Keeps training runnable in environments without the custom optimizer. |
+| Scripts              | Releases training, COCO test, plotting, and visualization scripts | Makes the non-core experiment utilities inspectable and reusable.     |
 
 ## Core Parameters
 
@@ -82,13 +82,13 @@ coco_only_best: False
 coco_start_epoch: 0
 ```
 
-| Parameter | Recommended use | Meaning |
-| --- | --- | --- |
-| `save_json=True` | Required for COCO API evaluation | Enables prediction collection for `predictions.json`. |
-| `use_coco_fitness=True` | Use when COCO mAP should drive model selection | Enables the training-time COCO evaluation branch. |
-| `coco_eval_interval=5` or `10` | Useful for long training | Runs COCO API every N epochs instead of every epoch. |
-| `coco_only_best=True` | Recommended with interval evaluation | Prevents non-COCO epochs from overwriting `best.pt`. |
-| `coco_start_epoch=100` | Useful for warmup-heavy training | Skips expensive COCO API calls in early epochs. |
+| Parameter                      | Recommended use                                | Meaning                                               |
+| ------------------------------ | ---------------------------------------------- | ----------------------------------------------------- |
+| `save_json=True`               | Required for COCO API evaluation               | Enables prediction collection for `predictions.json`. |
+| `use_coco_fitness=True`        | Use when COCO mAP should drive model selection | Enables the training-time COCO evaluation branch.     |
+| `coco_eval_interval=5` or `10` | Useful for long training                       | Runs COCO API every N epochs instead of every epoch.  |
+| `coco_only_best=True`          | Recommended with interval evaluation           | Prevents non-COCO epochs from overwriting `best.pt`.  |
+| `coco_start_epoch=100`         | Useful for warmup-heavy training               | Skips expensive COCO API calls in early epochs.       |
 
 ## Quick Start
 
@@ -202,18 +202,18 @@ The repository also keeps a qualitative visualization example generated by the r
 
 ## Repository Map
 
-| File | Role |
-| --- | --- |
-| [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py) | COCO fitness defaults, resume parameter handling, `best.pt` update control, SGD fallback. |
-| [`ultralytics/engine/validator.py`](ultralytics/engine/validator.py) | Epoch-level COCO scheduling, prediction JSON writing, training-time `eval_json()` calls. |
-| [`ultralytics/models/yolo/detect/val.py`](ultralytics/models/yolo/detect/val.py) | Custom annotation lookup, image ID mapping, `pycocotools.COCOeval` metric writing. |
-| [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml) | New COCO fitness configuration fields. |
-| [`ultralytics/train.py`](ultralytics/train.py) | Main training example used by this fork. |
-| [`coco-test.py`](coco-test.py) | COCO-related test script. |
-| [`visual.py`](visual.py) | Qualitative visualization script. |
-| [`ultralytics/plotfig2.py`](ultralytics/plotfig2.py) | Plotting script for figure-style visualization. |
-| [`ultralytics/3d.py`](ultralytics/3d.py) | 3D visualization helper script. |
-| [Change notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md) | Detailed technical change notes. |
+| File                                                                             | Role                                                                                      |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py)                 | COCO fitness defaults, resume parameter handling, `best.pt` update control, SGD fallback. |
+| [`ultralytics/engine/validator.py`](ultralytics/engine/validator.py)             | Epoch-level COCO scheduling, prediction JSON writing, training-time `eval_json()` calls.  |
+| [`ultralytics/models/yolo/detect/val.py`](ultralytics/models/yolo/detect/val.py) | Custom annotation lookup, image ID mapping, `pycocotools.COCOeval` metric writing.        |
+| [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml)                   | New COCO fitness configuration fields.                                                    |
+| [`ultralytics/train.py`](ultralytics/train.py)                                   | Main training example used by this fork.                                                  |
+| [`coco-test.py`](coco-test.py)                                                   | COCO-related test script.                                                                 |
+| [`visual.py`](visual.py)                                                         | Qualitative visualization script.                                                         |
+| [`ultralytics/plotfig2.py`](ultralytics/plotfig2.py)                             | Plotting script for figure-style visualization.                                           |
+| [`ultralytics/3d.py`](ultralytics/3d.py)                                         | 3D visualization helper script.                                                           |
+| [Change notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md)              | Detailed technical change notes.                                                          |
 
 ## Technical Notes
 
