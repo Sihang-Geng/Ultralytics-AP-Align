@@ -921,14 +921,16 @@ class BaseTrainer:
 
     def resume_training(self, ckpt):
         """Resume YOLO training from given epoch and best fitness."""
-        LOGGER.info(f"DEBUG: resume_training called. ckpt is {'None' if ckpt is None else 'Present'}, resume={self.resume}")
+        LOGGER.info(
+            f"DEBUG: resume_training called. ckpt is {'None' if ckpt is None else 'Present'}, resume={self.resume}"
+        )
         if ckpt is None or not self.resume:
             return
         start_epoch = ckpt.get("epoch", -1) + 1
 
         # Handle finetuning/extended training: if current epochs > ckpt epoch, allow resume
         if self.epochs <= start_epoch:
-             assert start_epoch > 0, (
+            assert start_epoch > 0, (
                 f"{self.args.model} training to {self.epochs} epochs is finished, nothing to resume.\n"
                 f"Start a new training without resuming, i.e. 'yolo train model={self.args.model}'"
             )
