@@ -1,42 +1,66 @@
-# COCO-FairTrain
+# COCO-FairTrain 🚀
 
-COCO-FairTrain is a research-oriented training framework built on top of the Ultralytics codebase. Its purpose is narrow and explicit: make object detection training select checkpoints by COCO AP during training, so research comparisons are less distorted by fixed-epoch evaluation.
+**COCO AP-aligned training for fair object detection research.**
 
-The central change is the low-level checkpoint selection logic. Instead of training every model for the same number of epochs and evaluating only the final checkpoint afterwards, this framework can run COCO API evaluation during training and use `metrics/mAP50-95(B)` to decide when `best.pt` should be updated.
+COCO-FairTrain modifies the Ultralytics training loop so `best.pt` can be selected by official COCO API AP during training, not only by the final epoch or an internal validation signal.
 
-## Why This Matters for Research
+> Train with a fixed budget.  
+> Select checkpoints with the metric you actually report. 🎯
 
-Many object detection papers compare models under a fixed training schedule. A common workflow is simple: train every model for the same number of epochs, then call the COCO API on the final checkpoint. This looks fair on the surface because every model receives the same budget, but it can hide an important source of bias.
+## The Research Problem 🧪
 
-Different models do not converge at the same speed. A lightweight or easier-to-optimize model may reach its best COCO AP earlier, then gradually overfit or degrade before the fixed final epoch. Another model may improve more slowly and happen to peak near the final evaluation point. If both models are reported only at the final epoch, the first model is judged after it has already passed its best state, while the second model is judged closer to its peak. The comparison then mixes model quality with convergence timing.
+Many papers use this protocol:
 
-This is especially harmful in ablation studies and architecture comparisons. A method can look weaker not because its peak detection ability is lower, but because its best checkpoint occurred earlier than the chosen final epoch. The reported COCO AP becomes partly a result of schedule alignment, patience settings, and overfitting timing. For research claims, that is a fragile protocol.
+```text
+train every model for N epochs -> evaluate the final checkpoint with COCO API -> compare AP
+```
 
-COCO-FairTrain addresses this by aligning checkpoint selection with the same metric used for reporting. When enabled, the training loop periodically exports predictions, evaluates them with `pycocotools.COCOeval`, writes COCO `mAP50-95(B)` back into the trainer fitness, and only lets valid COCO-evaluated epochs update `best.pt`. The result is a training framework that is better suited to fair model-wise peak comparison.
+It looks fair, but there is a hidden trap:
 
-## What This Fork Changes
+| Model behavior | Final-epoch-only evaluation can do this |
+| --- | --- |
+| Peaks early, then overfits | Reports a degraded checkpoint 😵 |
+| Peaks near the final epoch | Reports a near-best checkpoint 🙂 |
+| Converges slowly | May look better simply because timing matches the protocol |
+| Converges fast | May be punished for being early |
 
-- Runs official COCO API evaluation during selected validation epochs.
-- Uses COCO `mAP50-95(B)` as training fitness when COCO evaluation succeeds.
-- Prevents ordinary non-COCO validation epochs from overwriting a COCO-selected `best.pt`.
-- Supports delayed COCO evaluation, so early training can skip expensive API calls.
-- Supports common custom COCO annotation layouts.
-- Maps prediction `image_id` values from the annotation JSON to avoid invalid COCO evaluation on custom datasets.
-- Falls back to standard `torch.optim.SGD` instead of requiring a custom optimizer path.
+So the comparison may become:
 
-For code-level implementation details, see the [implementation notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md).
+```text
+model quality + convergence timing + overfitting timing
+```
 
-## Modified Core Files
+instead of just:
 
-| Area | File | Role |
+```text
+model quality
+```
+
+COCO-FairTrain is built for this exact research pain point. It keeps the same training budget, but lets the framework save the best checkpoint according to COCO `mAP50-95(B)` observed during training.
+
+## What Changes? ⚙️
+
+```mermaid
+flowchart LR
+    A["Train epoch"] --> B["Validation"]
+    B --> C{"COCO eval epoch?"}
+    C -- "No" --> D["Normal logs only"]
+    D --> E["Do not overwrite COCO best.pt"]
+    C -- "Yes" --> F["Export predictions.json"]
+    F --> G["Run pycocotools.COCOeval"]
+    G --> H["Use mAP50-95(B) as fitness"]
+    H --> I["Update best.pt if AP improves"]
+```
+
+| Part | File | Main idea |
 | --- | --- | --- |
-| Checkpoint control | [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py) | Reads COCO fitness, guards `best.pt`, and preserves COCO-related resume options. |
-| Validation scheduling | [`ultralytics/engine/validator.py`](ultralytics/engine/validator.py) | Decides which epochs export predictions and run COCO API evaluation. |
-| COCO metrics | [`ultralytics/models/yolo/detect/val.py`](ultralytics/models/yolo/detect/val.py) | Locates annotation JSON files, maps image IDs, calls `COCOeval`, and writes AP metrics. |
-| Configuration | [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml) | Adds switches for COCO-aligned training behavior. |
-| Training entry | [`ultralytics/train.py`](ultralytics/train.py) | Example local entry point for the modified workflow. |
+| Trainer guard | [`ultralytics/engine/trainer.py`](ultralytics/engine/trainer.py) | Only COCO-evaluated epochs can replace `best.pt` when strict mode is enabled. |
+| Eval scheduler | [`ultralytics/engine/validator.py`](ultralytics/engine/validator.py) | Runs COCO API every N epochs instead of every epoch. |
+| COCO metrics | [`ultralytics/models/yolo/detect/val.py`](ultralytics/models/yolo/detect/val.py) | Calls `pycocotools`, writes AP metrics, and fixes custom `image_id` mapping. |
+| Config switches | [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml) | Adds COCO-aligned training options. |
+| Full notes | [implementation notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md) | Detailed modification record. |
 
-## New Options
+## Core Switches 🕹️
 
 ```yaml
 use_coco_fitness: False
@@ -45,59 +69,92 @@ coco_only_best: False
 coco_start_epoch: 0
 ```
 
-| Option | Meaning |
+| Option | Effect |
 | --- | --- |
-| `use_coco_fitness` | Enable training-time COCO API evaluation and use COCO AP as fitness when available. |
-| `coco_eval_interval` | Run COCO API evaluation every N epochs. The final epoch is also evaluated. |
-| `coco_only_best` | Only allow epochs with successful COCO evaluation to update `best.pt`. |
-| `coco_start_epoch` | Start COCO API evaluation after a chosen epoch to reduce early overhead. |
-| `save_json` | Required for COCO evaluation because predictions must be exported. It is enabled automatically when `use_coco_fitness=True`. |
+| `use_coco_fitness` | Enable training-time COCO API evaluation and use COCO AP as fitness. |
+| `coco_eval_interval` | Evaluate with COCO API every N epochs. |
+| `coco_only_best` | Block non-COCO epochs from updating `best.pt`. |
+| `coco_start_epoch` | Skip expensive COCO API calls in early training. |
 
-## Recommended Research Protocol
-
-Use the same training budget across models, but select each model's checkpoint by COCO AP observed during training:
-
-1. Enable `use_coco_fitness=True`.
-2. Set `coco_eval_interval` according to available compute, for example every 5 epochs.
-3. Set `coco_only_best=True` so non-COCO epochs cannot replace the COCO-selected best checkpoint.
-4. Use the resulting `best.pt` for final reporting or downstream testing.
-
-This protocol keeps the fixed training budget while reducing the unfairness introduced by final-epoch-only evaluation. It is particularly useful when comparing architectures, loss designs, training tricks, or ablation variants whose convergence speed may differ.
-
-## Installation
-
-```bash
-pip install -e .
-pip install pycocotools
-```
-
-## Example
+Recommended research setting:
 
 ```python
-from ultralytics import YOLO
-
-model = YOLO("ultralytics/cfg/models/v8/yolov8s.yaml")
-
-results = model.train(
-    data="path/to/data.yaml",
-    epochs=250,
-    imgsz=640,
-    seed=0,
-    deterministic=True,
-    save_json=True,
-    use_coco_fitness=True,
-    coco_eval_interval=5,
-    coco_only_best=True,
-    coco_start_epoch=100,
-    patience=100,
-)
+use_coco_fitness=True
+coco_eval_interval=5
+coco_only_best=True
+coco_start_epoch=100
 ```
 
-In this setup, checkpoints are judged by official COCO `mAP50-95(B)` whenever scheduled COCO evaluation runs. Intermediate validation epochs still provide normal training feedback, but they do not replace the COCO-selected `best.pt` when `coco_only_best=True`.
+## Key Code Ideas 🔍
 
-## Custom COCO Annotation Support
+These snippets mirror the actual implementation described in the modification notes.
 
-The validator searches common annotation locations:
+### 1. COCO evaluation is scheduled by epoch
+
+From `ultralytics/engine/validator.py`:
+
+```python
+coco_eval_this_epoch = (
+    ((trainer.epoch + 1) >= start_epoch)
+    and (
+        (eval_interval <= 1)
+        or ((trainer.epoch + 1) % eval_interval == 0)
+        or ((trainer.epoch + 1) == trainer.epochs)
+    )
+)
+
+self.args.save_json = coco_eval_this_epoch
+```
+
+Why it matters: COCO API can be expensive. This runs it only when needed, while still forcing the final epoch to be evaluated.
+
+### 2. COCO AP becomes the training fitness
+
+From `ultralytics/engine/validator.py`:
+
+```python
+stats = self.eval_json(stats)
+coco_fitness = stats.get("metrics/mAP50-95(B)")
+
+if coco_fitness is not None:
+    stats["fitness"] = coco_fitness
+    stats["coco_eval"] = 1.0
+```
+
+Why it matters: the metric used for checkpoint selection is now aligned with the metric used in papers.
+
+### 3. Non-COCO epochs cannot steal `best.pt`
+
+From `ultralytics/engine/trainer.py`:
+
+```python
+coco_eval = metrics.pop("coco_eval", 0.0)
+fitness = metrics.pop("fitness", -self.loss.detach().cpu().numpy())
+
+if self.args.use_coco_fitness and self.args.coco_only_best and not coco_eval:
+    fitness = float("-inf")
+
+if (not self.best_fitness or self.best_fitness < fitness) and fitness > float("-inf"):
+    self.best_fitness = fitness
+```
+
+Why it matters: if COCO evaluation runs every 5 epochs, the 4 ordinary validation epochs in between should not overwrite a COCO-selected checkpoint.
+
+### 4. Custom COCO datasets get safer `image_id` mapping
+
+From `ultralytics/models/yolo/detect/val.py`:
+
+```python
+for img in data.get("images", []):
+    self.img_id_map[Path(img["file_name"]).name] = img["id"]
+    self.img_id_map[Path(img["file_name"]).stem] = img["id"]
+```
+
+Why it matters: COCO prediction JSON must use the same `image_id` values as the annotation JSON. Filename-to-number conversion is often wrong for custom datasets.
+
+## Custom Annotation Search 🗂️
+
+The validator checks common COCO-style paths:
 
 ```text
 {data_path}/instances_val2017.json
@@ -109,18 +166,45 @@ The validator searches common annotation locations:
 {data_path}/_annotations.coco.json
 ```
 
-It also builds an image ID map from the annotation file:
+That makes the framework friendlier for exported datasets from real research pipelines.
 
-```python
-self.img_id_map[Path(img["file_name"]).name] = img["id"]
-self.img_id_map[Path(img["file_name"]).stem] = img["id"]
+## Quick Start ⚡
+
+```bash
+pip install -e .
+pip install pycocotools
 ```
 
-This matters because COCO prediction JSON must use the same `image_id` values as the ground-truth annotation file. Filename conversion alone is often unreliable for real custom datasets.
+```python
+from ultralytics import YOLO
+
+model = YOLO("ultralytics/cfg/models/v8/yolov8s.yaml")
+
+model.train(
+    data="path/to/data.yaml",
+    epochs=250,
+    imgsz=640,
+    save_json=True,
+    use_coco_fitness=True,
+    coco_eval_interval=5,
+    coco_only_best=True,
+    coco_start_epoch=100,
+)
+```
+
+## When To Use It ✅
+
+| Scenario | Useful? |
+| --- | --- |
+| Architecture comparison | ✅ |
+| Ablation study | ✅ |
+| Loss or training-trick comparison | ✅ |
+| Custom COCO-style dataset | ✅ |
+| Final-epoch-only leaderboard reproduction | Maybe not |
 
 ## Notes
 
 - This is a personal modified fork of Ultralytics, not an official Ultralytics release.
 - Upstream copyright notices and the GNU AGPL-3.0 license are retained.
 - If `pycocotools` is unavailable, COCO API evaluation is skipped with a warning.
-- The repository is intentionally focused on COCO-aligned checkpoint selection for research benchmarking.
+- The focus is intentionally narrow: **fair COCO AP checkpoint selection for research benchmarking**.
