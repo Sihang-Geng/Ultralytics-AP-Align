@@ -60,6 +60,88 @@ No diagram needed. The whole idea is this small control path:
 | Config switches | [`ultralytics/cfg/default.yaml`](ultralytics/cfg/default.yaml) | Adds COCO-aligned training options. |
 | Full notes | [implementation notes](ultralytics/%E6%9B%B4%E6%94%B9%E8%AF%B4%E6%98%8E.md) | Detailed modification record. |
 
+## Installation 🔗🚀
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Sihang-Geng/Ultralytics-AP-Align.git
+cd Ultralytics-AP-Align
+```
+
+### 2. Create the conda environment
+
+```bash
+conda create -n ap-align python=3.10 -y
+conda activate ap-align
+```
+
+### 3. Install PyTorch
+
+Please install the PyTorch build that matches your CUDA version. Examples:
+
+```bash
+# CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 11.8
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# CPU only
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+For other CUDA versions, use the selector on the [official PyTorch installation page](https://pytorch.org/get-started/locally/).
+
+### 4. Install this project
+
+```bash
+pip install -e .
+pip install pycocotools
+```
+
+If your network is slow, a PyPI mirror can be used for regular Python packages:
+
+```bash
+pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install pycocotools -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+### 5. Check the environment
+
+```bash
+python -c "import torch; print('torch:', torch.__version__); print('cuda:', torch.cuda.is_available())"
+python -c "import pycocotools; print('pycocotools: ok')"
+python -c "from ultralytics import YOLO; print('ultralytics import: ok')"
+```
+
+### 6. Run a tiny smoke test
+
+```bash
+yolo detect train model=yolov8n.pt data=coco8.yaml epochs=1 imgsz=640 use_coco_fitness=True coco_eval_interval=1 coco_only_best=True
+```
+
+If this finishes and creates a run directory under `runs/detect/`, the environment is ready.
+
+## Training Example ⚡
+
+```python
+from ultralytics import YOLO
+
+model = YOLO("ultralytics/cfg/models/v8/yolov8s.yaml")
+
+model.train(
+    data="path/to/data.yaml",
+    epochs=250,
+    imgsz=640,
+    save_json=True,
+    use_coco_fitness=True,
+    coco_eval_interval=5,
+    coco_only_best=True,
+    coco_start_epoch=100,
+)
+```
+
 ## Core Switches 🕹️
 
 ```yaml
@@ -167,30 +249,6 @@ The validator checks common COCO-style paths:
 ```
 
 That makes the framework friendlier for exported datasets from real research pipelines.
-
-## Quick Start ⚡
-
-```bash
-pip install -e .
-pip install pycocotools
-```
-
-```python
-from ultralytics import YOLO
-
-model = YOLO("ultralytics/cfg/models/v8/yolov8s.yaml")
-
-model.train(
-    data="path/to/data.yaml",
-    epochs=250,
-    imgsz=640,
-    save_json=True,
-    use_coco_fitness=True,
-    coco_eval_interval=5,
-    coco_only_best=True,
-    coco_start_epoch=100,
-)
-```
 
 ## When To Use It ✅
 
