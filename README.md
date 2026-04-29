@@ -1,8 +1,8 @@
-# COCO-FairTrain 🚀
+# Ultralytics-AP-Align 🚀
 
 **COCO AP-aligned training for fair object detection research.**
 
-COCO-FairTrain modifies the Ultralytics training loop so `best.pt` can be selected by official COCO API AP during training, not only by the final epoch or an internal validation signal.
+Ultralytics-AP-Align modifies the Ultralytics training loop so `best.pt` can be selected by official COCO API AP during training, not only by the final epoch or an internal validation signal.
 
 > Train with a fixed budget.  
 > Select checkpoints with the metric you actually report. 🎯
@@ -36,21 +36,21 @@ instead of just:
 model quality
 ```
 
-COCO-FairTrain is built for this exact research pain point. It keeps the same training budget, but lets the framework save the best checkpoint according to COCO `mAP50-95(B)` observed during training.
+Ultralytics-AP-Align is built for this exact research pain point. It keeps the same training budget, but lets the framework save the best checkpoint according to COCO `mAP50-95(B)` observed during training.
 
 ## What Changes? ⚙️
 
-```mermaid
-flowchart LR
-    A["Train epoch"] --> B["Validation"]
-    B --> C{"COCO eval epoch?"}
-    C -- "No" --> D["Normal logs only"]
-    D --> E["Do not overwrite COCO best.pt"]
-    C -- "Yes" --> F["Export predictions.json"]
-    F --> G["Run pycocotools.COCOeval"]
-    G --> H["Use mAP50-95(B) as fitness"]
-    H --> I["Update best.pt if AP improves"]
-```
+No diagram needed. The whole idea is this small control path:
+
+| Step | What happens |
+| --- | --- |
+| 1 | Train one epoch as usual. |
+| 2 | Run validation. |
+| 3 | If this is a scheduled COCO epoch, export `predictions.json`. |
+| 4 | Run `pycocotools.COCOeval`. |
+| 5 | Write COCO `mAP50-95(B)` into `fitness`. |
+| 6 | Update `best.pt` only if the COCO AP improves. |
+| 7 | If this is not a COCO epoch, normal logs continue but `best.pt` is protected. |
 
 | Part | File | Main idea |
 | --- | --- | --- |
