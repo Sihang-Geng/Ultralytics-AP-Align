@@ -102,7 +102,7 @@ export = [
 ]
 solutions = [
     "shapely>=2.0.0",    # shapely for point and polygon data matching
-    "streamlit>=1.29.0",    # for live inference on web browser, i.e `yolo streamlit-predict`
+    "streamlit>=1.50.0",    # for live inference on web browser, i.e `yolo streamlit-predict`
     "flask>=3.0.1",  # for similarity search solution
 ]
 logging = [
